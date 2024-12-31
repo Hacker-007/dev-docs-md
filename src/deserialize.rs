@@ -19,7 +19,7 @@ impl<'de> Visitor<'de> for StreamingDocsDBVisitor {
     where
         A: serde::de::MapAccess<'de>,
     {
-        let mut progress_bar = pbar(None);
+        let mut progress_bar = pbar(access.size_hint());
         while let Some((doc_path, html_docs)) = access.next_entry::<String, String>()? {
             let mut path = self.base_path.join(doc_path);
             let markdown_docs = parse_html(&html_docs);

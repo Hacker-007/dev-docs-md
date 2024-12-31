@@ -4,21 +4,28 @@ pub type DocsResult<T> = Result<T, DocsError>;
 
 #[derive(Debug)]
 pub enum DocsError {
-    HttpError(reqwest::Error),
-    OsError,
-    DeserializationError,
+    Http(reqwest::Error),
+    Os,
+    Deserialization,
+    Unknown,
 }
 
 impl From<reqwest::Error> for DocsError {
     fn from(err: reqwest::Error) -> Self {
-        DocsError::HttpError(err)
+        DocsError::Http(err)
+    }
+}
+
+impl From<std::io::Error> for DocsError {
+    fn from(_: std::io::Error) -> Self {
+        DocsError::Unknown
     }
 }
 
 impl Display for DocsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DocsError::HttpError(http_err) => write!(
+            DocsError::Http(http_err) => write!(
                 f,
                 "an error occurred when sending an HTTP request to {}",
                 http_err
@@ -26,8 +33,11 @@ impl Display for DocsError {
                     .map(|url| url.as_str())
                     .unwrap_or("an unknown URL")
             ),
-            DocsError::OsError => write!(f, "an error occurred when interacting with the OS"),
-            DocsError::DeserializationError => write!(f, "an error occurred when deserializing input"),
+            DocsError::Os => write!(f, "an error occurred when interacting with the OS"),
+            DocsError::Deserialization => {
+                write!(f, "an error occurred when deserializing input")
+            }
+            DocsError::Unknown => write!(f, "an unknown error occurred"),
         }
     }
 }

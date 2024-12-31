@@ -1,4 +1,4 @@
-use std::io::BufReader;
+use std::{fs, io::BufReader};
 
 use reqwest::blocking::Client;
 use serde::{Deserialize, Deserializer};
@@ -10,6 +10,7 @@ use crate::{
 
 const AVAILABLE_DOCS_SET_URL: &str = "https://devdocs.io/docs.json";
 const DOCS_DB_JSON: &str = "https://documents.devdocs.io";
+const MODIFIED_TIME_FILE: &str = ".mtime.txt";
 
 pub struct DocsClient {
     http_client: Client,
@@ -46,26 +47,42 @@ impl DocsClient {
     }
 
     pub fn fetch_entry(&self, entry: &DocsSetEntry) -> DocsResult<()> {
-        let slug_db = self
-            .http_client
-            .get(format!(
-                "{}/{}/db.json?{}",
-                DOCS_DB_JSON, entry.slug, entry.modified_time
-            ))
-            .send()?;
-
-        let slug_db = BufReader::new(slug_db);
-        let mut path = dirs::home_dir().ok_or_else(|| DocsError::OsError)?;
+        let mut path = dirs::home_dir().ok_or_else(|| DocsError::Os)?;
         path.push(".docs");
         path.push(&entry.slug);
-        println!("downloading {} docs", entry.slug);
-        let mut deserializer = serde_json::Deserializer::from_reader(slug_db);
-        let visitor = StreamingDocsDBVisitor { base_path: path };
-        deserializer
-            .deserialize_map(visitor)
-            .map_err(|_| DocsError::DeserializationError)?;
-        
-        println!("finished downloading {} docs", entry.slug);
+        let mtime_path = path.join(MODIFIED_TIME_FILE);
+        let (already_fetched, mtime) = fs::read_to_string(&mtime_path)
+            .ok()
+            .and_then(|mtime| mtime.parse::<u64>().ok())
+            .map(|mtime| (true, mtime))
+            .unwrap_or((false, 0));
+
+        let message = if already_fetched {
+            "updating"
+        } else {
+            "downloading"
+        };
+
+        if mtime < entry.modified_time {
+            let slug_db = self
+                .http_client
+                .get(format!(
+                    "{}/{}/db.json?{}",
+                    DOCS_DB_JSON, entry.slug, entry.modified_time
+                ))
+                .send()?;
+
+            let slug_db = BufReader::new(slug_db);
+            println!("{} {} docs", message, entry.slug);
+            let mut deserializer = serde_json::Deserializer::from_reader(slug_db);
+            let visitor = StreamingDocsDBVisitor { base_path: path };
+            deserializer
+                .deserialize_map(visitor)
+                .map_err(|_| DocsError::Deserialization)?;
+
+            fs::write(&mtime_path, format!("{}", entry.modified_time))?;
+            println!("finished {} {} docs", message, entry.slug);
+        }
         Ok(())
     }
 }
